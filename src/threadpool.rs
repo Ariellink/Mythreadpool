@@ -2,13 +2,19 @@ use crate::Worker;
 use crate::PoolCreationError;
 use std::sync::mpsc;
 use std::sync::{Arc,Mutex};
+
 pub struct Threadpool {
  workers: Vec<Worker>,
- sender: Option<mpsc::Sender<Job>>
+ sender: Option<mpsc::Sender<Message>>
 }
 
 //dyn FnOnce() + Send + 'static => F which a closure bounds
 pub type Job = Box<dyn FnOnce() + Send + 'static>;
+
+pub enum Message {
+    NewJob(Job),
+    Terminate,
+}
 
 impl Threadpool {
     pub fn build(thread_num: usize)-> Result<Self, PoolCreationError> {
@@ -43,7 +49,9 @@ impl Threadpool {
     where
         F: FnOnce() + 'static + Send,
     {
-        let job = Box::new(f);
+        // warp the closure as Box pointer
+        let job = Message::NewJob(Box::new(f));
+        //sender of the threadpool sends the job, and 
         self.sender.as_ref().unwrap().send(job).unwrap();
     }
 }
@@ -52,20 +60,37 @@ impl Threadpool {
 
 impl Drop for Threadpool {
     fn drop(&mut self) {
+        println!("Sending terminate message to all workers.");
+
+        for _ in &mut self.workers {
+             if let Some(m) = &self.sender {
+                m.send(Message::Terminate).unwrap()
+             }
+             //self.sender.as_ref().unwrap().send(Message::Terminate).unwrap();
+        }
+        
+        println!("Shutting down all workers.");
+
         for worker in &mut self.workers {
             //explictly drop the sender before waiting for threads to finish
-            drop(self.sender.take()); //then all calls to recv() in the loop with return an error
+            //drop(self.sender.take()); //then all calls to recv() in the loop with return an error
             //-> change the worker loop to handle the errors
-
             println!("Shutting down worker {}", worker.worker_id);
             //here is only one mutable borrow of each worker
             //join(self),the self here is JoinHandle<()>, join() takes its arguments' ownership
+
+            // if let Some(m) = &self.sender {
+            //     m.send(Message::Terminate).unwrap()
+            // }
+            
+            println!("Shutted down worker {}", worker.worker_id);
             //need to move the thread out of the Worker instance that owns it
             //thread: Option<thread::JoinHandle<()>>, Option.take()to move the value out of he some variant, leave None in its place
-            // before: worker.handle.join(); //error!
+             //worker.handle.join(); //error!
             if let Some(_handle) = worker.handle.take() {
                  _handle.join().unwrap();
             }
+            println!("Joined worker {}", worker.worker_id);
         }
     }
 }

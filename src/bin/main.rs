@@ -8,7 +8,7 @@ use std::time::Duration;
 
 fn main() -> Result<(), PoolCreationError>{
     let listener = TcpListener::bind("127.0.0.1:7879").unwrap();
-    let pool = Threadpool::build(4)?;
+    let pool = Threadpool::build(2)?;
 
     for stream in listener.incoming().take(2){
         let stream = stream.unwrap();
